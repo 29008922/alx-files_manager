@@ -1,30 +1,171 @@
-// utils/db.js
+#!/usr/bin/node
+/* eslint-disable no-underscore-dangle */
 
-const { MongoClient } = require('mongodb');
-
-const url = 'mongodb://localhost:27017';
-const dbName = 'your_db_name';
+import { MongoClient, ObjectID } from 'mongodb';
+import { pwdHash } from './utils';
 
 class DBClient {
   constructor() {
-    this.client = new MongoClient(url, { useUnifiedTopology: true });
-    this.client.connect().then(() => {
-      console.log('Connected to MongoDB');
-      this.db = this.client.db(dbName);
-    }).catch((err) => console.error('Failed to connect to MongoDB:', err));
+    const host = process.env.DB_HOST ? process.env.DB_HOST : '127.0.0.1';
+    const port = process.env.DB_PORT ? process.env.DB_PORT : 27017;
+    this.database = process.env.DB_DATABASE
+      ? process.env.DB_DATABASE
+      : 'files_manager';
+    const dbUrl = `mongodb://${host}:${port}`;
+    this.connected = false;
+    this.client = new MongoClient(dbUrl, { useUnifiedTopology: true });
+    this.client
+      .connect()
+      .then(() => {
+        this.connected = true;
+      })
+      .catch((err) => console.log(err.message));
   }
 
   isAlive() {
-    return !!this.db;
+    return this.connected;
   }
 
   async nbUsers() {
-    return this.db.collection('users').countDocuments();
+    if (!this.connected) {
+      await this.client.connect(); // Reconnect if not already connected
+    }
+    const users = await this.client
+      .db(this.database)
+      .collection('users')
+      .countDocuments();
+    return users;
   }
 
   async nbFiles() {
-    return this.db.collection('files').countDocuments();
+    if (!this.connected) {
+      await this.client.connect();
+    }
+    const files = await this.client
+      .db(this.database)
+      .collection('files')
+      .countDocuments();
+    return files;
+  }
+
+  async getUser(email) {
+    if (!this.connected) {
+      await this.client.connect();
+    }
+    const user = await this.client
+      .db(this.database)
+      .collection('users')
+      .find({ email })
+      .toArray();
+    if (!user.length) {
+      return null;
+    }
+    return user[0];
+  }
+
+  async userExist(email) {
+    const user = await this.getUser(email);
+    if (user) {
+      return true;
+    }
+    return false;
+  }
+
+  async createUser(email, password) {
+    if (!this.connected) {
+      await this.client.connect();
+    }
+    const hashedPwd = pwdHash(password);
+    const user = this.client
+      .db(this.database)
+      .collection('users')
+      .insertOne({ email, password: hashedPwd });
+    return user;
+  }
+
+  async getUserById(id) {
+    if (!this.connected) {
+      await this.client.connect();
+    }
+    const _id = new ObjectID(id);
+    const user = await this.client
+      .db(this.database)
+      .collection('users')
+      .find({ _id })
+      .toArray();
+    if (!user.length) {
+      return null;
+    }
+    return user[0];
+  }
+
+  async getFileById(id) {
+    if (!this.connected) {
+      await this.client.connect();
+    }
+    const _id = new ObjectID(id);
+    const file = await this.client
+      .db(this.database)
+      .collection('files')
+      .find({ _id })
+      .toArray();
+    if (!file.length) {
+      return null;
+    }
+    return file[0];
+  }
+
+  async getFilesByParentId(pipeline) {
+    if (!this.connected) {
+      await this.client.connect();
+    }
+    const files = await this.client
+      .db(this.database)
+      .collection('files')
+      .aggregate(pipeline)
+      .toArray();
+    if (!files.length) {
+      return null;
+    }
+    return files;
+  }
+
+  async getAllFiles(pipeline) {
+    if (!this.connected) {
+      await this.client.connect();
+    }
+    const files = await this.client
+      .db(this.database)
+      .collection('files')
+      .aggregate(pipeline)
+      .toArray();
+    if (!files.length) {
+      return null;
+    }
+    return files;
+  }
+
+  async uploadFile(userId, name, type, isPublic, parentId, localPath = null) {
+    if (!this.connected) {
+      await this.client.connect();
+    }
+    const obj = {
+      userId,
+      name,
+      type,
+      isPublic,
+      parentId,
+    };
+    if (localPath) {
+      obj.localPath = localPath;
+    }
+    const file = await this.client
+      .db(this.database)
+      .collection('files')
+      .insertOne(obj);
+    return file;
   }
 }
 
-module.exports = new DBClient();
+const dbClient = new DBClient();
+export default dbClient;
