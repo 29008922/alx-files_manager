@@ -175,4 +175,4 @@ class FilesController {
   }
 }
 
-export default FilesController;
+module.exports = FilesController;
